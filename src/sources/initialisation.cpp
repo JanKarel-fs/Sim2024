@@ -15,12 +15,14 @@ void initialisation(CellField<Compressible>& w, const Setting& setting) {
 
   switch (setting.solver) {
   case 1: {
+    step<Compressible> = stepExplicit<Compressible>;
     FluxList flxList;
     Compressible::flux = flxList[setting.flux];
   }
     break;
 
   case 2: {
+    step<Compressible> = stepImplicit<Compressible>;
     FluxList flxList;
     Compressible::flux = flxList[setting.flux];
 
