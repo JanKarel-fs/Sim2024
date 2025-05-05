@@ -32,6 +32,9 @@ public:
   double alpha;
   double Ma2is;
   double CFL;
+  double CFLmax;
+  int incrementIts;
+  double incCoeff;
   double kappa;
   double R;
   double Pr;
@@ -44,6 +47,8 @@ public:
   int diffusion;
   string nodeWeightType;
   int solver;
+
+  void updateCFL();
 
   Setting(const string& fileName);
   ~Setting() {};

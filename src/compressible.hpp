@@ -62,6 +62,10 @@ public:
   static pair<pair<Matrixd, Matrixd>, Compressible> RusanovImplicit(const Compressible& wl,
 						      const Compressible& wr, const Vector2d& s);
 
+  static pair<pair<Matrixd, Matrixd>, Compressible> fluxDissipativeImplicit(const Compressible& wl,
+					 const Compressible& wr, const Point2d& L, const Point2d& R,
+					 const Vector2<PrimitiveVars>& gradP, const Vector2d& s);
+
   static const int nVars = 4;
 
   double& operator[](int k) {

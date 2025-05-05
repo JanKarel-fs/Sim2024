@@ -23,8 +23,8 @@ void initialisation(CellField<Compressible>& w, const Setting& setting) {
 
   case 2: {
     step<Compressible> = stepImplicit<Compressible>;
-    FluxList flxList;
-    Compressible::flux = flxList[setting.flux];
+    FluxImplicitList flxList;
+    Compressible::fluxImplicit = flxList[setting.flux];
 
     switch (setting.temporalOrder) {
     case 1: timeIncrement<Compressible> = timeIncrementFirstOrder<Compressible>;

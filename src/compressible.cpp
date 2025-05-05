@@ -410,3 +410,89 @@ pair<pair<Matrixd, Matrixd>, Compressible> Compressible::RusanovImplicit(const C
 
   return JacobiansAndRHS;
 }
+
+pair<pair<Matrixd, Matrixd>, Compressible> Compressible::fluxDissipativeImplicit(
+					 const Compressible& wl, const Compressible& wr,
+					 const Point2d& cL, const Point2d& cR,
+					 const Vector2<PrimitiveVars>& gradP, const Vector2d& s) {
+  Compressible w = 0.5 * (wl + wr);
+
+  Compressible flx = fluxDissipative(gradP, w, s);
+
+  const double mu = w.mu();
+  const double k = w.k();
+  
+
+  double ds = s.length();
+  Vector2d n = s / ds;
+
+  Vector2d LR(cL, cR);
+  Vector2d s_LR(LR.y, -LR.x);
+
+  double diamondVol = 0.5 * std::fabs(cross(s, s_LR));
+
+  Matrixd dFdPleft(nVars), dFdPright(nVars);
+  Matrixd dPdWleft(nVars), dPdWright(nVars);
+
+  dFdPleft.zero();  dFdPright.zero();
+  dPdWleft.zero();  dPdWright.zero();
+
+
+  // evaluation of dF/dP
+  // second row
+  double value = -mu * ds/(2.*diamondVol) * (1. + 1./3. * n.x*n.x);
+  dFdPleft[1][1] = value;   dFdPright[1][1] = -value;
+  value = -mu * ds/(6.*diamondVol) * n.x*n.y;
+  dFdPleft[1][2] = value;   dFdPright[1][2] = -value;
+
+  // third row
+  dFdPleft[2][1] = value;   dFdPright[2][1] = -value;
+  value = -mu * ds/(2.*diamondVol) * (1. + 1./3. * n.y*n.y);
+  dFdPleft[2][2] = value;   dFdPright[2][2] = -value;
+
+  const Vector2d& velocity = 0.5 * (wl.rhoU/wl.rho + wr.rhoU/wr.rho);
+  // fourth row
+  double I = 0.5 * flx.rhoU.x / ds;
+  double II = mu * ds/(2.*diamondVol) * (-velocity.x * (1. + n.x*n.x/3.) - velocity.y * n.x*n.y/3.);
+  dFdPleft[3][1] = I + II;   dFdPright[3][1] = I - II;
+  I = 0.5 * flx.rhoU.y / ds;
+  II = mu * ds/(2.*diamondVol) * (-velocity.x * n.x*n.y/3. - velocity.y * (1. + n.y*n.y/3.));
+  dFdPleft[3][2] = I + II;   dFdPright[3][2] = I - II;
+  value = -k * ds/(2.*diamondVol);
+  dFdPleft[3][3] = value;   dFdPright[3][3] = -value;
+
+  // evaluation of dP/dW
+  double coeff = (kappa - 1.) / R;
+  dPdWleft[0][0] = 1.;
+  dPdWleft[1][0] = -wl.rhoU.x/(pow(wl.rho, 2));  dPdWleft[1][1] = 1./wl.rho;
+  dPdWleft[2][0] = -wl.rhoU.y/(pow(wl.rho, 2));  dPdWleft[2][2] = 1./wl.rho;
+  dPdWleft[3][0] = coeff * (-wl.e/pow(wl.rho, 2)
+			    + (pow(wl.rhoU.x, 2) + pow(wl.rhoU.y, 2)) / pow(wl.rho, 3));
+  dPdWleft[3][1] = -coeff * wl.rhoU.x / pow(wl.rho, 2);
+  dPdWleft[3][2] = -coeff * wl.rhoU.y / pow(wl.rho, 2);
+  dPdWleft[3][3] = coeff / wl.rho;
+
+  
+  dPdWright[0][0] = 1.;
+  dPdWright[1][0] = -wr.rhoU.x/(pow(wr.rho, 2));  dPdWright[1][1] = 1./wr.rho;
+  dPdWright[2][0] = -wr.rhoU.y/(pow(wr.rho, 2));  dPdWright[2][2] = 1./wr.rho;
+  dPdWright[3][0] = coeff * (-wr.e/pow(wr.rho, 2)
+			    + (pow(wr.rhoU.x, 2) + pow(wr.rhoU.y, 2)) / pow(wr.rho, 3));
+  dPdWright[3][1] = -coeff * wr.rhoU.x / pow(wr.rho, 2);
+  dPdWright[3][2] = -coeff * wr.rhoU.y / pow(wr.rho, 2);
+  dPdWright[3][3] = coeff / wr.rho;
+  
+  Matrixd JL(nVars), JR(nVars);
+
+  JL = dFdPleft * dPdWleft;
+  JR = dFdPright * dPdWright;
+
+  pair<pair<Matrixd, Matrixd>, Compressible> JacobiansAndRHS;
+
+  JacobiansAndRHS.first.first = JL * ds;
+  JacobiansAndRHS.first.second = JR * ds;
+  JacobiansAndRHS.second = flx;
+
+  return JacobiansAndRHS;
+}
+

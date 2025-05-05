@@ -1,6 +1,6 @@
 #include "timeStep.hpp"
 
-double timeStep(const CellField<Compressible>& w, const Grid& g, const Setting& setting) {
+double timeStep(const CellField<Compressible>& w, const Grid& g, Setting& setting) {
   double dt = 1e5;
 
   int M = w.M();
@@ -59,6 +59,8 @@ double timeStep(const CellField<Compressible>& w, const Grid& g, const Setting& 
       dt = min(dt, dtij);
     }
   }
+
+  setting.updateCFL();
 
   return dt;
 }

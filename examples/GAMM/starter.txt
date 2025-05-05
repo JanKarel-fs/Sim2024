@@ -29,7 +29,7 @@ FLUX_SPLITTER
 flux			Upwind			// Upwind, Rusanov
 //////////////////////////////////////////////////////////////////////////////
 SYSTEM
-solver			1			// (1) explicit, (2) implicit
+solver			2			// (1) explicit, (2) implicit
 convection		1			// (0) off, (1) on
 diffusion		0			// (0) off, (1) on
 nodeWeightType		LSM			// LSM, Weight
@@ -41,7 +41,9 @@ limiter			2			// 1 - Barth-Jespersen,
 						// 2 - Venkatakrishnan
 //////////////////////////////////////////////////////////////////////////////
 TIME
-CFL			0.4
+CFL			10
+CFLbegin		10
+incrementIts		1
 //////////////////////////////////////////////////////////////////////////////
 PHYSICAL_VALUES
 kappa			1.4
@@ -51,4 +53,4 @@ R			287.1
 Pr			0.72
 //////////////////////////////////////////////////////////////////////////////
 SAVING
-stop			100000			// total number of interations
+stop			1000			// total number of interations

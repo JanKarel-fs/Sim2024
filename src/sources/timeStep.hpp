@@ -10,6 +10,6 @@
 
 using namespace std;
 
-double timeStep(const CellField<Compressible>& w, const Grid& g, const Setting& setting);
+double timeStep(const CellField<Compressible>& w, const Grid& g, Setting& setting);
 
 #endif

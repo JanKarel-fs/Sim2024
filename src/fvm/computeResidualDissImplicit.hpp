@@ -1,25 +1,36 @@
-#ifndef COMPUTERESIDUALCONVIMPLICIT_HPP
-#define COMPUTERESIDUALCONVIMPLICIT_HPP
+#ifndef COMPUTERESIDUALDISSIMPLICIT_HPP
+#define COMPUTERESIDUALDISSIMPLICIT_HPP
 
 #include "grid.hpp"
 #include "cellfield.hpp"
+#include "nodefield.hpp"
 #include "grad.hpp"
 #include "limiter.hpp"
 #include "../geometry/vector.hpp"
 #include "../geometry/matrix.hpp"
+#include "fvm/setNodeField.hpp"
+#include "firstDerivatives.hpp"
+#include "primitiveVars.hpp"
 #include "sources/typedefs.hpp"
 #include "sources/linearSolver.hpp"
 #include <omp.h>
 
 template <typename var>
-void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
-				 const map<string, bcWithJacobian>& BC,
-				 LinearSolver<var>& linSolver, const Setting& setting) {
+void computeResidualDissImplicit(const CellField<var>& w, const Grid& g,
+			const map<string, bcWithJacobian>& BC,
+			LinearSolver<var>& linSolver, const Setting& setting) {
 
-  CellField<Vector2<var> > gradW(g);
-  CellField<var> psi(g);
-  grad<var>(w, gradW, g);
-  limiter<var>(w, gradW, psi, g);
+  CellField<PrimitiveVars> pVars(g);
+  NodeField<PrimitiveVars> pVarsNode(g);
+
+#pragma omp parallel for
+  for (int i=w.Imin(); i<w.Imax(); i++) {
+    for (int j=w.Jmin(); j<w.Jmax(); j++) {
+      pVars[i][j] = PrimitiveVars::set(w[i][j]);
+    }
+  }
+
+  setNodeField(pVars, pVarsNode, g);
   
   // vypocet toku stenami ve smeru i
 #pragma omp parallel for
@@ -27,13 +38,24 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
     for (int j=0; j<w.N()+1; j++) {
       const Face& f = g.faceI(i, j);
 
-      Vector2d rL(g.center(i, j), f.center);
-      Vector2d rR(g.center(i, j-1), f.center);
-      
-      var wl = w[i][j] + psi[i][j] * (gradW[i][j].x * rL.x + gradW[i][j].y * rL.y);
-      var wr = w[i][j-1] + psi[i][j-1] * (gradW[i][j-1].x * rR.x + gradW[i][j-1].y * rR.y);
+      const PrimitiveVars& pVarsL = pVars[i][j];
+      const PrimitiveVars& pVarsR = pVars[i][j-1];
+      const PrimitiveVars& pVarsA = pVarsNode[i][j];
+      const PrimitiveVars& pVarsB = pVarsNode[i+1][j];
 
-      pair<pair<Matrixd, Matrixd>, var> increment = var::fluxImplicit(wl, wr, f.s);
+      Point2d L = g.center(i, j);
+      Point2d R = g.center(i, j-1);
+      Point2d A = g.vertex(i, j);
+      Point2d B = g.vertex(i+1, j);
+
+      Vector2<PrimitiveVars> gradP;
+      firstDerivatives(gradP, pVarsA, pVarsB, pVarsL, pVarsR, L, R, f.s);
+
+      var wl = w[i][j];
+      var wr = w[i][j-1];
+
+      pair<pair<Matrixd, Matrixd>, var> increment = var::fluxDissipativeImplicit(wl, wr, L, R,
+									         gradP, f.s);
 
       int leftOffset = var::nVars * (j*w.M() + i);
       int rightOffset = var::nVars * ((j-1)*w.M() + i);
@@ -51,7 +73,7 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
 	if (j==0) {
 	  wb = wl;
 	  offset = leftOffset;
-	  coeff = -1.;
+	  coeff = 1.;
 	  volume = leftVolume;
 	  auto it = BC.find(f.name);
 	  Matrixd BJacobian = it->second.second(wb, f.s, setting);
@@ -60,7 +82,7 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
 	else {
 	  wb = wr;
 	  offset = rightOffset;
-	  coeff = 1.;
+	  coeff = -1.;
 	  volume = rightVolume;
 	  auto it = BC.find(f.name);
 	  Matrixd BJacobian = it->second.second(wb, f.s, setting);
@@ -71,7 +93,7 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
 	double values[var::nVars*var::nVars];
 	
 	for (int k=0; k<var::nVars; k++) {
-	  linSolver.rhs[ offset + k] += coeff*flx[k] / volume;
+	  linSolver.rhs[offset + k] += coeff*flx[k] / volume;
 	  row[k] = offset + k;
 	  col[k] = offset + k;
 	  for (int m=0; m<var::nVars; m++) {
@@ -87,18 +109,18 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
 	double valuesRL[var::nVars*var::nVars], valuesRR[var::nVars*var::nVars];
 	
 	for (int k=0; k<var::nVars; k++) {
-	  linSolver.rhs[leftOffset + k] += -1.*flx[k] / leftVolume;
-	  linSolver.rhs[rightOffset + k] += flx[k] / rightVolume;
+	  linSolver.rhs[leftOffset + k] += flx[k] / leftVolume;
+	  linSolver.rhs[rightOffset + k] += -1.*flx[k] / rightVolume;
 	  rowL[k] = leftOffset + k;
 	  colL[k] = leftOffset + k;
 	  rowR[k] = rightOffset + k;
 	  colR[k] = rightOffset + k;
 	  for (int m=0; m<var::nVars; m++) {
-	    valuesLL[k*var::nVars + m] = Jacobians.first[k][m] / leftVolume;
-	    valuesLR[k*var::nVars + m] = Jacobians.second[k][m] / leftVolume;
+	    valuesLL[k*var::nVars + m] = -1.*Jacobians.first[k][m] / leftVolume;
+	    valuesLR[k*var::nVars + m] = -1.*Jacobians.second[k][m] / leftVolume;
 
-	    valuesRL[k*var::nVars + m] = -1.*Jacobians.first[k][m] / rightVolume;
-	    valuesRR[k*var::nVars + m] = -1.*Jacobians.second[k][m] / rightVolume;
+	    valuesRL[k*var::nVars + m] = Jacobians.first[k][m] / rightVolume;
+	    valuesRR[k*var::nVars + m] = Jacobians.second[k][m] / rightVolume;
 	  }
 	}
 
@@ -116,13 +138,24 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
     for (int i=0; i<w.M()+1; i++) {
       const Face& f = g.faceJ(i, j);
 
-      Vector2d rL(g.center(i-1, j), f.center);
-      Vector2d rR(g.center(i, j), f.center);
-      
-      var wl = w[i-1][j] + psi[i-1][j] * (gradW[i-1][j].x * rL.x + gradW[i-1][j].y * rL.y);
-      var wr = w[i][j] + psi[i][j] * (gradW[i][j].x * rR.x + gradW[i][j].y * rR.y);
-      
-      pair<pair<Matrixd, Matrixd>, var> increment = var::fluxImplicit(wl, wr, f.s);
+      const PrimitiveVars& pVarsL = pVars[i-1][j];
+      const PrimitiveVars& pVarsR = pVars[i][j];
+      const PrimitiveVars& pVarsA = pVarsNode[i][j];
+      const PrimitiveVars& pVarsB = pVarsNode[i][j+1];
+
+      Point2d L = g.center(i-1, j);
+      Point2d R = g.center(i, j);
+      Point2d A = g.vertex(i, j);
+      Point2d B = g.vertex(i, j+1);
+
+      Vector2<PrimitiveVars> gradP;
+      firstDerivatives(gradP, pVarsA, pVarsB, pVarsL, pVarsR, L, R, f.s);
+
+      var wl = w[i-1][j];
+      var wr = w[i][j];
+
+      pair<pair<Matrixd, Matrixd>, var> increment = var::fluxDissipativeImplicit(wl, wr, L, R,
+									         gradP, f.s);
 
       int leftOffset = var::nVars * (j*w.M() + i-1);
       int rightOffset = var::nVars * (j*w.M() + i);
@@ -133,14 +166,14 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
       const var& flx = increment.second;
       pair<Matrixd, Matrixd>& Jacobians = increment.first;
 
-      if (i==0 || i==w.M()) {	
+      if (i==0 || i==w.M()) {
 	var wb;
 	int offset;
 	double coeff, volume;
 	if (i==0) {
 	  wb = wr;
 	  offset = rightOffset;
-	  coeff = 1.;
+	  coeff = -1.;
 	  volume = rightVolume;
 	  auto it = BC.find(f.name);
 	  Matrixd BJacobian = it->second.second(wb, f.s, setting);
@@ -149,7 +182,7 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
 	else {
 	  wb = wl;
 	  offset = leftOffset;
-	  coeff = -1.;
+	  coeff = 1.;
 	  volume = leftVolume;
 	  auto it = BC.find(f.name);
 	  Matrixd BJacobian = it->second.second(wb, f.s, setting);
@@ -176,18 +209,18 @@ void computeResidualConvImplicit(const CellField<var>& w, const Grid& g,
 	double valuesRL[var::nVars*var::nVars], valuesRR[var::nVars*var::nVars];
 	
 	for (int k=0; k<var::nVars; k++) {
-	  linSolver.rhs[leftOffset + k] += -1.*flx[k] / leftVolume;
-	  linSolver.rhs[rightOffset + k] += flx[k] / rightVolume;
+	  linSolver.rhs[leftOffset + k] += flx[k] / leftVolume;
+	  linSolver.rhs[rightOffset + k] += -1.*flx[k] / rightVolume;
 	  rowL[k] = leftOffset + k;
 	  colL[k] = leftOffset + k;
 	  rowR[k] = rightOffset + k;
 	  colR[k] = rightOffset + k;
 	  for (int m=0; m<var::nVars; m++) {
-	    valuesLL[k*var::nVars + m] = Jacobians.first[k][m] / leftVolume;
-	    valuesLR[k*var::nVars + m] = Jacobians.second[k][m] / leftVolume;
-	    
-	    valuesRL[k*var::nVars + m] = -1.*Jacobians.first[k][m] / rightVolume;
-	    valuesRR[k*var::nVars + m] = -1.*Jacobians.second[k][m] / rightVolume;
+	    valuesLL[k*var::nVars + m] = -1.*Jacobians.first[k][m] / leftVolume;
+	    valuesLR[k*var::nVars + m] = -1.*Jacobians.second[k][m] / leftVolume;
+
+	    valuesRL[k*var::nVars + m] = Jacobians.first[k][m] / rightVolume;
+	    valuesRR[k*var::nVars + m] = Jacobians.second[k][m] / rightVolume;
 	  }
 	}
 

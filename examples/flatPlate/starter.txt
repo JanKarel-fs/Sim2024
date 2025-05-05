@@ -40,13 +40,15 @@ FLUX_SPLITTER
 flux			Rusanov			// Upwind, Rusanov
 //////////////////////////////////////////////////////////////////////////////
 SYSTEM
-solver			1			// (1) explicit, (2) implicit
+solver			2			// (1) explicit, (2) implicit
 convection		1			// (0) off, (1) on
 diffusion		1			// (0) off, (1) on
 nodeWeightType		LSM			// LSM, Weight
 //////////////////////////////////////////////////////////////////////////////
 TIME
-CFL			0.15
+CFL			5000
+CFLbegin		0.15
+incrementIts		200
 //////////////////////////////////////////////////////////////////////////////
 PHYSICAL_VALUES
 kappa			1.4
@@ -56,4 +58,4 @@ R			0.06196954073134
 Pr			0.72
 //////////////////////////////////////////////////////////////////////////////
 SAVING
-stop			100000			// total number of interations
+stop			1000			// total number of interations
